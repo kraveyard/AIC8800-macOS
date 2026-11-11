@@ -1,0 +1,12 @@
+.DS_Store
+DerivedData
+build
+xcuserdata
+project.xcworkspace
+FwBinary.cpp
+*.pyc
+MacKernelSDK
+
+# The Tahoe build vendors MacKernelSDK in-tree (see README.md).
+# Undo the upstream ignore so the SDK is tracked here.
+!MacKernelSDK/

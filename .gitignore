@@ -1,0 +1,25 @@
+# Build products
+build/
+DerivedData/
+*.o
+*.d
+*.dia
+*.dSYM/
+*.kext/
+
+# Generated at build time from itlwm/firmware/ by the fw_gen target
+third_party/airportitlwmtahoe/src/airportitlwmtahoe/src/itlwm/include/FwBinary.cpp
+
+# Local research data: captures contain WPA2 session keys and device identifiers
+captures/
+efi-backup/
+*.pcap
+*.pcapng
+*.tsv
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

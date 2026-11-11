@@ -1,0 +1,45 @@
+AIC8800 macOS driver — third-party notices
+==========================================
+
+The driver source in this repository is distributed under the GNU General
+Public License version 2 (see LICENSE). It is built on, or derived from, the
+following projects and components:
+
+  * OpenIntelWireless/itlwm — GPL-2.0
+  * laobamac/itlwm — GPL-2.0
+  * Youtubefan01/airportitlwmtahoe — GPL-2.0
+  * OpenBSD net80211 and crypto code — ISC/BSD (see the file headers)
+  * Linux aic8800 driver — GPL-2.0 (driver source released with AIC's approval)
+  * Apple MacKernelSDK — Apple Public Source License 2.0
+  * Apple IO80211Family headers — reverse-engineered interface headers; no
+    licence is granted by Apple for these files
+
+Vendor firmware
+---------------
+
+This repository also contains vendor firmware binaries, which are NOT covered
+by the GPL and are not licensed by the GPL text in LICENSE:
+
+  * AICSemi AIC8800 firmware, embedded in
+    third_party/airportitlwmtahoe/src/airportitlwmtahoe/src/itlwm/itlwm/hal_aic/AICLoaderSeq.h
+  * Intel iwlwifi firmware, in
+    third_party/airportitlwmtahoe/src/airportitlwmtahoe/src/itlwm/itlwm/firmware/
+    and include/FwBinary.cpp (see iwlwifi-firmware-license in the same tree)
+
+The AIC8800 firmware is the property of AICSemi. It is included here for
+interoperability with the hardware it was shipped for, so that users do not
+have to source the firmware separately. AIC has not published an explicit
+redistribution licence for these blobs. If you are the rights holder and want
+this material removed, open an issue on the project's repository and it will
+be taken down promptly.
+
+The AIC8800 loader table (AICLoaderSeq.h) is a verbatim replay of the USB
+traffic that Linux's aic_load_fw sends to the chip. It therefore contains the
+firmware payload, and is subject to the same caveat.
+
+
+Copyright (C) 2026 Kraveyard
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation; version 2 of the License.

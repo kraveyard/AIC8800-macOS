@@ -1,0 +1,67 @@
+struct sm_connect_req size=320
+  ssid                   @  0 sz33
+  bssid                  @ 34 sz6
+  chan                   @ 40 sz6
+  flags                  @ 48 sz4
+  ctrl_port_ethertype    @ 52 sz2
+  ie_len                 @ 54 sz2
+  listen_interval        @ 56 sz2
+  dont_wait_bcmc         @ 58 sz1
+  auth_type              @ 59 sz1
+  uapsd_queues           @ 60 sz1
+  vif_idx                @ 61 sz1
+  ie_buf                 @ 64 sz256
+struct sm_connect_ind size=852
+  status_code            @  0 sz2
+  bssid                  @  2 sz6
+  roamed                 @  8 sz1
+  vif_idx                @  9 sz1
+  ap_idx                 @ 10 sz1
+  ch_idx                 @ 11 sz1
+  qos                    @ 12 sz1
+  acm                    @ 13 sz1
+  assoc_req_ie_len       @ 14 sz2
+  assoc_rsp_ie_len       @ 16 sz2
+  assoc_ie_buf           @ 20 sz800
+  aid                    @820 sz2
+  band                   @822 sz1
+  center_freq            @824 sz2
+  width                  @826 sz1
+  center_freq1           @828 sz4
+  center_freq2           @832 sz4
+  ac_param               @836 sz16
+struct mm_key_add_req size=44
+  key_idx                @  0 sz1
+  sta_idx                @  1 sz1
+  key                    @  4 sz36
+  cipher_suite           @ 40 sz1
+  inst_nbr               @ 41 sz1
+  spp                    @ 42 sz1
+  pairwise               @ 43 sz1
+struct mm_key_del_req size=1
+  hw_key_idx             @  0 sz1
+struct me_set_control_port_req size=2
+  sta_idx                @  0 sz1
+  control_port_open      @  1 sz1
+struct scanu_start_req size=376
+  chan                   @  0 sz252
+  ssid                   @252 sz99
+  bssid                  @352 sz6
+  add_ies                @360 sz4
+  add_ie_len             @364 sz2
+  vif_idx                @366 sz1
+  chan_cnt               @367 sz1
+  ssid_cnt               @368 sz1
+  no_cck                 @369 sz1
+  duration               @372 sz4
+struct mac_ssid size=33
+  length                 @  0 sz1
+  array                  @  1 sz32
+struct mac_chan_def size=6
+  freq                   @  0 sz2
+  band                   @  2 sz1
+  flags                  @  3 sz1
+  tx_power               @  4 sz1
+struct mac_sec_key size=36
+  length                 @  0 sz1
+  array                  @  4 sz32
