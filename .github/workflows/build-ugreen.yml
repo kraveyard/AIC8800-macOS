@@ -38,7 +38,7 @@ jobs:
           plutil -lint "$plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :IOKitPersonalities:aic8800-ugreen-8d88:idProduct' "$plist")" = 36232
           test "$(/usr/libexec/PlistBuddy -c 'Print :IOKitPersonalities:aic8800-ugreen-eject:idProduct' "$plist")" = 22308
-          lipo -verify_arch x86_64 dist/AirportItlwm.kext/Contents/MacOS/AirportItlwm
+          lipo dist/AirportItlwm.kext/Contents/MacOS/AirportItlwm -verify_arch x86_64
           ditto -c -k --keepParent dist/AirportItlwm.kext dist/UGREEN-AIC8800-Tahoe-x86_64.zip
           shasum -a 256 dist/UGREEN-AIC8800-Tahoe-x86_64.zip > dist/SHA256SUMS
       - name: Upload driver
