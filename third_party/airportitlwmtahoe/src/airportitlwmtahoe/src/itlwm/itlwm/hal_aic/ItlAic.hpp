@@ -19,6 +19,7 @@
 #include <HAL/ItlDriverInfo.hpp>
 #include <HAL/ItlDriverController.hpp>
 #include <IOKit/IOInterruptEventSource.h>
+#include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IOLocks.h>
 #include <IOKit/usb/IOUSBHostInterface.h>
@@ -107,6 +108,13 @@ private:
     int fHwKeyPairwise = -1, fHwKeyGroup[4] = {-1, -1, -1, -1};
     mbuf_t fPendingEapol = nullptr;  // EAPOL that beat SM_CONNECT_IND through the other pipe
     uint32_t fDbgTx = 0, fDbgRx = 0; // shortcut: debug log budget for the first frames, remove once data path is proven
+    IOTimerEventSource *fBeaconTimer = nullptr;
+    uint8_t fTargetBssid[6] = {};
+    uint8_t fBeaconBuf[2048] = {};
+    uint32_t fBeaconLen = 0;
+    int8_t fBeaconRssi = -55;
+    uint16_t fBeaconFreq = 0;
+    uint64_t fBeaconTsf = 0;
 
     // transport
     bool openPipes();
@@ -147,6 +155,10 @@ private:
     void rxBaStop(struct ieee80211_node *ni, uint8_t tid, bool deliver);
     void rxBaStopAll(bool deliver);
     void injectMgmt(uint8_t subtype, const uint8_t *body, uint32_t blen);
+    static void beaconTimerAction(OSObject *owner, IOTimerEventSource *sender);
+    void cacheBeaconFrame(const uint8_t *frame, uint32_t len, int8_t rssi, uint16_t freq);
+    void startBeaconTimer();
+    void stopBeaconTimer();
     void onConnectInd(const uint8_t *p, uint32_t plen);
     void onDisconnectInd(const uint8_t *p, uint32_t plen);
     void txData(mbuf_t m);

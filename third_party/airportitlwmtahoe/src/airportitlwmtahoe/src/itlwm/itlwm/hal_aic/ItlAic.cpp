@@ -490,6 +490,16 @@ bool ItlAic::attach(IOPCIDevice *)
     }
     src->enable();
     fRxSource = src;                        // publish last: reader threads start delivering now
+    IOTimerEventSource *timer = IOTimerEventSource::timerEventSource(this, beaconTimerAction);
+    if (!timer || getMainWorkLoop()->addEventSource(timer) != kIOReturnSuccess) {
+        OSSafeReleaseNULL(timer);
+        fRxSource = nullptr;
+        src->disable();
+        getMainWorkLoop()->removeEventSource(src);
+        src->release();
+        return false;
+    }
+    fBeaconTimer = timer;
     setupIC();
     return true;
 }
@@ -521,6 +531,14 @@ void ItlAic::detach(IOPCIDevice *)
             that->rxBaStopAll(false);
         return kIOReturnSuccess;
     }, this);
+    stopBeaconTimer();
+    if (IOTimerEventSource *timer = fBeaconTimer) {
+        fBeaconTimer = nullptr;
+        timer->cancelTimeout();
+        timer->disable();
+        getMainWorkLoop()->removeEventSource(timer);
+        timer->release();
+    }
     shutdownTransport();
     if (IOInterruptEventSource *src = fRxSource) {
         fRxSource = nullptr;
@@ -727,6 +745,7 @@ int ItlAic::startConnect(struct ieee80211_node *ni)
         AICLOG("SM_CONNECT_REQ failed (err %d status %u)", err, cfm[0]);
         return err ? err : EIO;
     }
+    memcpy(fTargetBssid, ni->ni_bssid, 6);
     fConnecting = true;
     AICLOG("connecting to %s on %u MHz", ether_sprintf(ni->ni_bssid), ni->ni_chan->ic_freq);
     return 0;
@@ -734,6 +753,7 @@ int ItlAic::startConnect(struct ieee80211_node *ni)
 
 void ItlAic::fwDisconnect()
 {
+    stopBeaconTimer();
     rxBaStopAll(false);
     if (fPendingEapol) {
         mbuf_freem(fPendingEapol);
@@ -977,6 +997,31 @@ void ItlAic::onConnectInd(const uint8_t *p, uint32_t plen)
     AICLOG("connected, ap sta %u vif %u, state %d", fApIdx, fVifIdx, ic->ic_state);
     if (ic->ic_state != IEEE80211_S_RUN)
         return;
+    if (ic->ic_bss && (fBeaconLen < 36 || !IEEE80211_ADDR_EQ(fBeaconBuf + 16, ic->ic_bss->ni_bssid))) {
+        struct ieee80211_node *ni = ic->ic_bss;
+        uint8_t syn[256] = {};
+        struct ieee80211_frame *wh = (struct ieee80211_frame *)syn;
+        wh->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON;
+        memset(wh->i_addr1, 0xff, 6);
+        IEEE80211_ADDR_COPY(wh->i_addr2, ni->ni_bssid);
+        IEEE80211_ADDR_COPY(wh->i_addr3, ni->ni_bssid);
+        uint32_t pos = sizeof(*wh);
+        memcpy(syn + pos, ni->ni_tstamp, 8); pos += 8;
+        wr16(syn + pos, ni->ni_intval ? ni->ni_intval : 100); pos += 2;
+        wr16(syn + pos, ni->ni_capinfo); pos += 2;
+        uint8_t slen = (uint8_t)MIN((int)ni->ni_esslen, 32);
+        syn[pos++] = IEEE80211_ELEMID_SSID;
+        syn[pos++] = slen;
+        memcpy(syn + pos, ni->ni_essid, slen); pos += slen;
+        uint8_t nrates = (uint8_t)MIN((int)ni->ni_rates.rs_nrates, 8);
+        if (nrates > 0) {
+            syn[pos++] = IEEE80211_ELEMID_RATES;
+            syn[pos++] = nrates;
+            memcpy(syn + pos, ni->ni_rates.rs_rates, nrates); pos += nrates;
+        }
+        cacheBeaconFrame(syn, pos, (int8_t)ni->ni_rssi - 100, ni->ni_chan ? ni->ni_chan->ic_freq : 0);
+    }
+    startBeaconTimer();
     if (!(ic->ic_flags & IEEE80211_F_RSNON))
         setControlPort(true);
     if (fPendingEapol) {
@@ -993,6 +1038,7 @@ void ItlAic::onDisconnectInd(const uint8_t *p, uint32_t plen)
     if (!fFwConnected)                      // answer to our own SM_DISCONNECT_REQ
         return;
     AICLOG("firmware disconnected, reason %u", reason);
+    stopBeaconTimer();
     rxBaStopAll(false);
     fFwConnected = false;
     fPortOpen = false;
@@ -1012,7 +1058,16 @@ void ItlAic::handleMsg(uint16_t id, const uint8_t *p, uint32_t plen)
         // u16 length, u16 framectrl, u16 center_freq, u8 band, u8 sta_idx, u8 inst_nbr, s8 rssi, pad, frame
         if (plen < 12 || 12u + rd16(p) > plen || rd16(p) < 36)
             break;
-        mbuf_t m = makeMbuf(p + 12, rd16(p));
+        uint32_t flen = rd16(p);
+        const uint8_t *fr = p + 12;
+        uint8_t subtype = fr[0] & (IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_MASK);
+        if ((subtype == (IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON) ||
+             subtype == (IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_PROBE_RESP)) &&
+            ((ic->ic_bss && IEEE80211_ADDR_EQ(fr + 16, ic->ic_bss->ni_bssid)) ||
+             IEEE80211_ADDR_EQ(fr + 16, fTargetBssid))) {
+            cacheBeaconFrame(fr, flen, (int8_t)p[9], rd16(p + 4));
+        }
+        mbuf_t m = makeMbuf(fr, flen);
         if (m)
             inputFrame(m, (int8_t)p[9], rd16(p + 4), false);
         break;
@@ -1044,9 +1099,16 @@ void ItlAic::handleData(const uint8_t *p, uint32_t len)
         AICLOG("rx fc %02x%02x len %u flags %08x st %08x a1 %s iv %02x%02x%02x%02x", f[0], f[1], flen,
                rd32(p + 48), rd32(p + 36), ether_sprintf(f + 4), f[24], f[25], f[26], f[27]);
     }
-    if (len < kRxHdrLen + flen || flen < sizeof(struct ieee80211_frame) || !(rd32(p + 48) & (1u << 6)))
+    uint32_t rxFlags = rd32(p + 48);
+    bool isBeacon = (len >= kRxHdrLen + 36) &&
+        ((p[kRxHdrLen] & (IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_MASK)) ==
+         (IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON));
+    if (len < kRxHdrLen + flen || flen < sizeof(struct ieee80211_frame) ||
+        (!(rxFlags & (1u << 6)) && !isBeacon))
         return;                             // not flagged for upload
     const uint8_t *fr = p + kRxHdrLen;
+    if (isBeacon && ic->ic_bss && IEEE80211_ADDR_EQ(fr + 16, ic->ic_bss->ni_bssid))
+        cacheBeaconFrame(fr, flen, (int8_t)p[14], rd16(p + 42));
     mbuf_t m = makeMbuf(fr, flen);
     if (!m)
         return;
@@ -1063,6 +1125,57 @@ void ItlAic::handleData(const uint8_t *p, uint32_t len)
     }
     inputFrame(m, (int8_t)p[14], rd16(p + 42), (fr[1] & IEEE80211_FC1_PROTECTED) != 0,
                (rd32(p + 48) & (1u << 5)) != 0);   // hw_rxhdr flags_need_reord
+}
+
+void ItlAic::cacheBeaconFrame(const uint8_t *frame, uint32_t len, int8_t rssi, uint16_t freq)
+{
+    if (!frame || len < 36 || len > sizeof(fBeaconBuf))
+        return;
+    memcpy(fBeaconBuf, frame, len);
+    fBeaconBuf[0] = (fBeaconBuf[0] & 0x03) | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON;
+    fBeaconLen = len;
+    fBeaconRssi = rssi;
+    fBeaconFreq = freq;
+    uint64_t tsf = 0;
+    for (int i = 0; i < 8; i++)
+        tsf |= ((uint64_t)fBeaconBuf[24 + i]) << (8 * i);
+    if (tsf > fBeaconTsf)
+        fBeaconTsf = tsf;
+}
+
+void ItlAic::startBeaconTimer()
+{
+    if (fBeaconTimer && !fStopping)
+        fBeaconTimer->setTimeoutMS(500);
+}
+
+void ItlAic::stopBeaconTimer()
+{
+    if (fBeaconTimer)
+        fBeaconTimer->cancelTimeout();
+}
+
+void ItlAic::beaconTimerAction(OSObject *owner, IOTimerEventSource *)
+{
+    ItlAic *that = OSDynamicCast(ItlAic, owner);
+    if (!that || that->fStopping || !that->fFwConnected)
+        return;
+    struct ieee80211com *ic = &that->com.sc_ic;
+    if (ic->ic_state != IEEE80211_S_RUN || !ic->ic_bss || !(ic->ic_if.if_flags & IFF_RUNNING))
+        return;
+    if (that->fBeaconLen < 36 || !IEEE80211_ADDR_EQ(that->fBeaconBuf + 16, ic->ic_bss->ni_bssid))
+        return;
+    that->fBeaconTsf += 500000ULL;
+    for (int i = 0; i < 8; i++)
+        that->fBeaconBuf[24 + i] = (uint8_t)(that->fBeaconTsf >> (8 * i));
+    mbuf_t m = that->makeMbuf(that->fBeaconBuf, that->fBeaconLen);
+    if (m) {
+        uint16_t freq = that->fBeaconFreq ? that->fBeaconFreq :
+            (ic->ic_bss->ni_chan ? ic->ic_bss->ni_chan->ic_freq : 0);
+        int rssi = that->fBeaconRssi ? that->fBeaconRssi : ((int)ic->ic_bss->ni_rssi - 100);
+        that->inputFrame(m, rssi, freq, false);
+    }
+    that->startBeaconTimer();
 }
 
 #pragma mark - transmit
