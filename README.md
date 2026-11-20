@@ -14,6 +14,17 @@ only. Expect kernel panics; read the limits before installing.
 * [User guide: what works, installing, limits, troubleshooting](docs/README.md)
 * [Protocol notes: USB framing, firmware upload, scan/connect/key/data](docs/PROTOCOL.md)
 
+## Changes in version2
+
+- Added USB matching for the UGREEN AIC8800D80 adapter, including driver-disk
+  eject (`a69c:5724`) and the Wi-Fi interface after firmware loads (`368b:8d88`).
+- Fixed a recurring disconnect after roughly one minute by keeping beacon
+  updates flowing to macOS while connected.
+- Added passive background scanning while connected. The driver reports
+  nearby access points to macOS without dropping the current association.
+  This restored current-location lookup in Weather on a physical AIC8800D80
+  setup running macOS Tahoe 26.7.3.
+
 ## Build
 
 Build on macOS with Xcode 26:

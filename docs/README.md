@@ -27,6 +27,16 @@ Companion doc: `PROTOCOL.md` (USB/firmware protocol).
 
 Hardware it was built for: AIC8800D80 revision U02, chip ID `0xf9078820`, USB IDs `a69c:5721` → `a69c:8d80` → `368b:8d81`.
 
+### Additional support in version2
+
+- UGREEN AIC8800D80 adapters use `a69c:5724` in driver-disk mode and `368b:8d88`
+  after firmware loads. Both USB IDs are matched.
+- The driver now keeps beacon updates flowing to macOS while connected, fixing
+  the recurring disconnect after roughly one minute.
+- While connected, the driver can scan passively without leaving the current
+  network. Weather successfully resolved the current location on a physical
+  AIC8800D80 setup running macOS Tahoe 26.7.3.
+
 ---
 
 ## Installing
@@ -76,6 +86,9 @@ Wi-Fi menu / airportd ──► IO80211Family (Tahoe Skywalk) ──► AirportI
                                      AIC8800 firmware (fullmac: does auth/assoc and encryption)
 ```
 - **Scan:** `SCANU_START_REQ`; each result is a raw beacon fed to net80211, so macOS sees normal scan results.
+  While associated, the driver uses the same firmware command in passive mode,
+  honors channel restrictions from macOS, and reports scan completion or
+  failure without changing the association.
 - **Join:** the firmware does authentication and association (`SM_CONNECT_REQ`). When it reports success, the driver injects
   matching auth/assoc responses so net80211 moves to "associated" and runs the WPA2 handshake itself.
 - **Keys:** net80211's keys go to the firmware with `MM_KEY_ADD_REQ`; the firmware encrypts and decrypts.
@@ -95,7 +108,7 @@ Wi-Fi menu / airportd ──► IO80211Family (Tahoe Skywalk) ──► AirportI
 - **One chip revision:** the firmware upload only supports the recorded chip (D80 U02). Other AIC8800 variants (D80X2, D81, clones
   with VID:PID 1111:1111) are refused or not matched.
 - **Idle latency** ~90 ms (≈9 ms under load), probably firmware power save.
-- **Scanning while connected** is refused (no background scan yet).
+- **Scanning while connected** is passive. Hidden networks may require a directed scan.
 - **No A-MPDU reordering** on receive; frames reach the network stack in arrival order.
 - **Tahoe only.** A macOS update can change the private IO80211 interfaces; rebuild and recheck with `kmutil libraries -p`.
 - The kext still logs key installs and the first 40 sent/received frames of each connection (for debugging).
@@ -118,6 +131,8 @@ sudo log show --last 10m --style compact --predicate 'eventMessage CONTAINS "AIC
 | `key pairwise …` / `key group …` / `control port … open 1` | WPA2 keys installed, traffic allowed |
 | `timeout waiting for cfm 0x…` | the firmware did not answer a command |
 | `vif mac -> …` | the private Wi-Fi address was applied |
+| `background scan started …` / `background scan completed …` | a passive scan ran while connected; completion logs the firmware status and result count |
+| `background scan timed out …` | the firmware did not finish the scan in time; the driver attempted to cancel it |
 
 - Self-assigned 169.254.x.x address: DHCP got no answer; check that `vif mac` matches `ifconfig en1`'s `ether`.
 - Keyboard/mouse dead in the Tahoe installer: see the Tahoe USB note above.
