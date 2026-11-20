@@ -101,6 +101,7 @@ private:
     uint8_t fVifMac[6] = {};         // address the firmware vif was created with
     uint8_t fVifIdx = 0, fApIdx = 0;
     bool fScanning = false;
+    bool fBackgroundScan = false;
     bool fConnecting = false;        // SM_CONNECT_REQ sent, no SM_CONNECT_IND yet
     bool fFwConnected = false;       // firmware holds an association
     bool fDisconnecting = false;     // we asked the firmware to leave
@@ -109,6 +110,7 @@ private:
     mbuf_t fPendingEapol = nullptr;  // EAPOL that beat SM_CONNECT_IND through the other pipe
     uint32_t fDbgTx = 0, fDbgRx = 0; // shortcut: debug log budget for the first frames, remove once data path is proven
     IOTimerEventSource *fBeaconTimer = nullptr;
+    IOTimerEventSource *fScanTimer = nullptr;
     uint8_t fTargetBssid[6] = {};
     uint8_t fBeaconBuf[2048] = {};
     uint32_t fBeaconLen = 0;
@@ -143,7 +145,9 @@ private:
     // net80211 glue
     int aicInit(struct _ifnet *ifp);
     void aicStop(struct _ifnet *ifp);
-    int startScan();
+    int startScan(bool background = false);
+    void finishBackgroundScan(int error);
+    static void scanTimerAction(OSObject *owner, IOTimerEventSource *sender);
     int startConnect(struct ieee80211_node *ni);
     void fwDisconnect();
     void deleteHwKeys();
@@ -164,6 +168,7 @@ private:
     void txData(mbuf_t m);
 
     static int aic_newstate(struct ieee80211com *, enum ieee80211_state, int);
+    static int aic_bgscan_start(struct ieee80211com *);
     static void aic_start(struct _ifnet *);
     static IOReturn aic_start_task(OSObject *, void *, void *, void *, void *);
     static int aic_ioctl(struct _ifnet *, u_long, caddr_t);

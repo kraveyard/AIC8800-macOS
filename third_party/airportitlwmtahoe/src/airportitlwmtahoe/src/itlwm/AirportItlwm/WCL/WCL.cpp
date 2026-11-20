@@ -794,6 +794,9 @@ void AirportItlwmSkywalkInterface::handleWCLEvent(int code, void *data)
             if (scanPending) {
                 if (scanSkipCompletion)
                     scanSkipCompletion = false;
+                else if (data && *static_cast<const int *>(data) != 0)
+                    finishWCLScan(*static_cast<const int *>(data) == ETIMEDOUT ?
+                                  kIOReturnTimeout : kIOReturnIOError);
                 else {
                     scanCompleted = true;
                     scanSource->setTimeoutMS(0);

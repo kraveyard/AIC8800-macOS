@@ -41,6 +41,7 @@ static const uint32_t kDataRxSize = 32768;   // firmware aggregates up to 20 KiB
 static const uint32_t kDataTxSize = 4096;
 static const uint32_t kRxHdrLen = 60;        // hw_rxhdr in front of every received 802.11 frame
 static const uint32_t kRxQueueMax = 1024;
+static const uint8_t kScanChannelNoIR = 1u << 0;
 
 // lmac message ids (AIC8800-macOS/tools/hdr/msg_names.txt)
 enum : uint16_t {
@@ -48,7 +49,7 @@ enum : uint16_t {
     MM_KEY_ADD_REQ = 0x0024, MM_KEY_ADD_CFM = 0x0025, MM_KEY_DEL_REQ = 0x0026, MM_KEY_DEL_CFM = 0x0027,
     MM_GET_MAC_ADDR_REQ = 0x0073, MM_GET_FW_VERSION_REQ = 0x0080,
     SCANU_START_REQ = 0x1000, SCANU_START_CFM = 0x1001, SCANU_RESULT_IND = 0x1004,
-    SCANU_START_CFM_ADDTIONAL = 0x1009,
+    SCANU_START_CFM_ADDTIONAL = 0x1009, SCANU_CANCEL_REQ = 0x100a, SCANU_CANCEL_CFM = 0x100b,
     ME_SET_CONTROL_PORT_REQ = 0x1404, ME_SET_CONTROL_PORT_CFM = 0x1405,
     SM_CONNECT_REQ = 0x1800, SM_CONNECT_CFM = 0x1801, SM_CONNECT_IND = 0x1802,
     SM_DISCONNECT_REQ = 0x1803, SM_DISCONNECT_CFM = 0x1804, SM_DISCONNECT_IND = 0x1805,
@@ -437,6 +438,7 @@ void ItlAic::setupIC()
     ic->ic_delete_key = aic_delete_key;
     com.sc_newstate = ic->ic_newstate;
     ic->ic_newstate = aic_newstate;
+    ic->ic_bgscan_start = aic_bgscan_start;
     ieee80211_media_init(ifp);
 }
 
@@ -500,6 +502,11 @@ bool ItlAic::attach(IOPCIDevice *)
         return false;
     }
     fBeaconTimer = timer;
+    timer = IOTimerEventSource::timerEventSource(this, scanTimerAction);
+    if (timer && getMainWorkLoop()->addEventSource(timer) == kIOReturnSuccess)
+        fScanTimer = timer;
+    else
+        OSSafeReleaseNULL(timer);
     setupIC();
     return true;
 }
@@ -534,6 +541,13 @@ void ItlAic::detach(IOPCIDevice *)
     stopBeaconTimer();
     if (IOTimerEventSource *timer = fBeaconTimer) {
         fBeaconTimer = nullptr;
+        timer->cancelTimeout();
+        timer->disable();
+        getMainWorkLoop()->removeEventSource(timer);
+        timer->release();
+    }
+    if (IOTimerEventSource *timer = fScanTimer) {
+        fScanTimer = nullptr;
         timer->cancelTimeout();
         timer->disable();
         getMainWorkLoop()->removeEventSource(timer);
@@ -630,7 +644,8 @@ void ItlAic::aicStop(struct _ifnet *ifp)
     ifp->if_timer = 0;
     ifp->if_flags &= ~IFF_RUNNING;
     // A scan the firmware still runs completes into a non-SCAN state and is ignored.
-    ic->ic_flags &= ~(IEEE80211_F_BGSCAN | IEEE80211_F_ASCAN);
+    ic->ic_flags &= ~(IEEE80211_F_BGSCAN | IEEE80211_F_ASCAN |
+                      IEEE80211_F_DISABLE_BG_AUTO_CONNECT);
     ic->ic_wcl_scan_requested = false;
     ic->ic_wcl_scan_active = false;
     ic->ic_wcl_scan_ssid_length = 0;
@@ -673,23 +688,44 @@ int ItlAic::aic_ioctl(struct _ifnet *ifp, u_long cmd, caddr_t data)
 
 #pragma mark - net80211 state machine
 
-int ItlAic::startScan()
+int ItlAic::aic_bgscan_start(struct ieee80211com *ic)
 {
+    // Scan for system clients without changing association or enabling roaming.
+    ItlAic *that = fromIC(ic);
+    if (!ic->ic_wcl_scan_requested || ic->ic_state != IEEE80211_S_RUN)
+        return EBUSY;
+    if (!that->fScanTimer || that->fStopping)
+        return ENXIO;
+    return that->startScan(true);
+}
+
+int ItlAic::startScan(bool background)
+{
+    if (fScanning)
+        return EBUSY;
+
     struct ieee80211com *ic = &com.sc_ic;
     uint8_t req[376] = {};                  // scanu_start_req
     uint32_t n = 0;
     for (int c = 1; c <= IEEE80211_CHAN_MAX && n < 42; c++) {
         struct ieee80211_channel *ch = &ic->ic_channels[c];
-        if (!ch->ic_flags)
+        if (!ch->ic_flags ||
+            (background && ic->ic_wcl_scan_restricted &&
+             !(ic->ic_wcl_scan_channels[c / 8] & (1u << (c % 8)))))
             continue;
         uint8_t *d = req + n * 6;           // mac_chan_def: freq, band, flags, tx_power
         wr16(d, ch->ic_freq);
         d[2] = IEEE80211_IS_CHAN_5GHZ(ch) ? 1 : 0;
+        if (background)
+            d[3] = kScanChannelNoIR;
         d[4] = 20;
         n++;
     }
+    if (!n)
+        return EINVAL;
+
     // ssid[0] is the wildcard; a directed probe for WCL's or the join SSID finds hidden networks.
-    uint8_t nssid = 1;
+    uint8_t nssid = background ? 0 : 1;
     const uint8_t *dssid = nullptr;
     uint8_t dlen = 0;
     if (ic->ic_wcl_scan_ssid_length) {
@@ -699,7 +735,7 @@ int ItlAic::startScan()
         dssid = ic->ic_des_essid;
         dlen = ic->ic_des_esslen;
     }
-    if (dssid && dlen <= 32) {
+    if (!background && dssid && dlen <= 32) {
         req[252 + 33] = dlen;
         memcpy(req + 252 + 33 + 1, dssid, dlen);
         nssid = 2;
@@ -710,9 +746,43 @@ int ItlAic::startScan()
     req[368] = nssid;
     int err = sendMsg(SCANU_START_REQ, req, sizeof(req), SCANU_START_CFM_ADDTIONAL, nullptr, 0, 1000);
     fScanning = err == 0;
+    fBackgroundScan = background && fScanning;
     if (err)
         AICLOG("scan start failed: %d", err);
+    else if (background) {
+        fScanTimer->setTimeoutMS(12000);
+        AICLOG("background scan started (%u channels)", n);
+    }
     return err;
+}
+
+void ItlAic::finishBackgroundScan(int error)
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    const bool pending = (ic->ic_flags & IEEE80211_F_BGSCAN) &&
+        ic->ic_wcl_scan_requested && ic->ic_state == IEEE80211_S_RUN;
+    ic->ic_flags &= ~(IEEE80211_F_BGSCAN | IEEE80211_F_DISABLE_BG_AUTO_CONNECT);
+    if (pending && ic->ic_event_handler)
+        ic->ic_event_handler(ic, IEEE80211_EVT_SCAN_DONE, &error);
+}
+
+void ItlAic::scanTimerAction(OSObject *owner, IOTimerEventSource *)
+{
+    ItlAic *that = static_cast<ItlAic *>(owner);
+    if (!that->fBackgroundScan || that->fStopping)
+        return;
+
+    uint8_t status = 0xff;
+    const int error = that->sendMsg(SCANU_CANCEL_REQ, nullptr, 0, SCANU_CANCEL_CFM,
+                                    &status, sizeof(status), 1000);
+    AICLOG("background scan timed out (cancel error %d, firmware status %u)", error, status);
+    that->finishBackgroundScan(ETIMEDOUT);
+
+    // Only free the firmware scan slot once the device acknowledges cancellation.
+    if (!error && status == 0) {
+        that->fScanning = false;
+        that->fBackgroundScan = false;
+    }
 }
 
 int ItlAic::startConnect(struct ieee80211_node *ni)
@@ -1055,6 +1125,9 @@ void ItlAic::handleMsg(uint16_t id, const uint8_t *p, uint32_t plen)
     struct ieee80211com *ic = &com.sc_ic;
     switch (id) {
     case SCANU_RESULT_IND: {
+        if (fBackgroundScan && (!(ic->ic_flags & IEEE80211_F_BGSCAN) ||
+                                !ic->ic_wcl_scan_requested))
+            break;
         // u16 length, u16 framectrl, u16 center_freq, u8 band, u8 sta_idx, u8 inst_nbr, s8 rssi, pad, frame
         if (plen < 12 || 12u + rd16(p) > plen || rd16(p) < 36)
             break;
@@ -1073,9 +1146,20 @@ void ItlAic::handleMsg(uint16_t id, const uint8_t *p, uint32_t plen)
         break;
     }
     case SCANU_START_CFM:
+        if (!fScanning)
+            break;
         fScanning = false;
-        if (ic->ic_state == IEEE80211_S_SCAN && (ic->ic_if.if_flags & IFF_RUNNING))
+        if (fBackgroundScan) {
+            fBackgroundScan = false;
+            fScanTimer->cancelTimeout();
+            AICLOG("background scan completed (firmware status %u, results %u)",
+                   plen >= 2 ? p[1] : 0, plen >= 3 ? p[2] : 0);
+            finishBackgroundScan(plen >= 2 && p[1] != 0 ? EIO : 0);
+            if (ic->ic_state == IEEE80211_S_SCAN && (ic->ic_if.if_flags & IFF_RUNNING))
+                startScan();
+        } else if (ic->ic_state == IEEE80211_S_SCAN && (ic->ic_if.if_flags & IFF_RUNNING)) {
             ieee80211_end_scan(&ic->ic_if);
+        }
         break;
     case SM_CONNECT_IND:
         onConnectInd(p, plen);
