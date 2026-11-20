@@ -1,0 +1,58 @@
+name: Build UGREEN AIC8800 Tahoe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, version1, version2]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      PROJECT_DIR: third_party/airportitlwmtahoe/src/airportitlwmtahoe/src/itlwm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check toolchain and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          cd "$PROJECT_DIR"
+          xcodebuild -project itlwm.xcodeproj -target AirportItlwm-Tahoe \
+            -configuration Release ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SYMROOT="$RUNNER_TEMP/aic-build" OBJROOT="$RUNNER_TEMP/aic-obj" \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/dist" \
+            build 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+      - name: Verify and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          plist=dist/AirportItlwm.kext/Contents/Info.plist
+          plutil -lint "$plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :IOKitPersonalities:aic8800-ugreen-8d88:idProduct' "$plist")" = 36232
+          test "$(/usr/libexec/PlistBuddy -c 'Print :IOKitPersonalities:aic8800-ugreen-eject:idProduct' "$plist")" = 22308
+          lipo dist/AirportItlwm.kext/Contents/MacOS/AirportItlwm -verify_arch x86_64
+          ditto -c -k --keepParent dist/AirportItlwm.kext dist/UGREEN-AIC8800-Tahoe-x86_64.zip
+          shasum -a 256 dist/UGREEN-AIC8800-Tahoe-x86_64.zip > dist/SHA256SUMS
+      - name: Upload driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: UGREEN-AIC8800-Tahoe-x86_64
+          path: |
+            dist/UGREEN-AIC8800-Tahoe-x86_64.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore

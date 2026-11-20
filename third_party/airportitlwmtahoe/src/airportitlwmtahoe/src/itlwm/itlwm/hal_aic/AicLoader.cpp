@@ -57,7 +57,10 @@ bool AicLoader::start(IOService *provider)
         return false;
     }
     fIntf->retain();
-    fMassStorage = fIntf->getDevice()->getDeviceDescriptor()->idProduct == 0x5721;
+    // UGREEN uses 5724 for its driver disc (vendor Linux tools/aic.rules).
+    // Treat it as storage, not as a bootloader eligible for firmware upload.
+    const uint16_t product = fIntf->getDevice()->getDeviceDescriptor()->idProduct;
+    fMassStorage = product == 0x5721 || product == 0x5724;
     // mass storage: bulk 0x02 OUT / 0x82 IN; bootloader: bulk 0x01 OUT / 0x82 IN
     fOut = fIntf->copyPipe(fMassStorage ? 0x02 : 0x01);
     fIn = fIntf->copyPipe(0x82);

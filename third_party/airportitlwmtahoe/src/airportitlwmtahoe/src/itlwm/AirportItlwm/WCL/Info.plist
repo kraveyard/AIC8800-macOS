@@ -45,33 +45,14 @@
 			<string>AicUSBDeviceWrapper</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBHostInterface</string>
-			<key>idVendor</key>
-			<integer>13963</integer>
-			<key>idProduct</key>
-			<integer>36225</integer>
 			<key>bConfigurationValue</key>
 			<integer>1</integer>
 			<key>bInterfaceNumber</key>
 			<integer>2</integer>
-		</dict>
-		<key>aic8800-eject</key>
-		<dict>
-			<key>CFBundleIdentifier</key>
-			<string>com.zxystd.AirportItlwm</string>
-			<key>IOClass</key>
-			<string>AicLoader</string>
-			<key>IOProviderClass</key>
-			<string>IOUSBHostInterface</string>
-			<key>IOProbeScore</key>
-			<integer>100000</integer>
-			<key>idVendor</key>
-			<integer>42652</integer>
 			<key>idProduct</key>
-			<integer>22305</integer>
-			<key>bConfigurationValue</key>
-			<integer>1</integer>
-			<key>bInterfaceNumber</key>
-			<integer>0</integer>
+			<integer>36225</integer>
+			<key>idVendor</key>
+			<integer>13963</integer>
 		</dict>
 		<key>aic8800-bootloader</key>
 		<dict>
@@ -79,18 +60,79 @@
 			<string>com.zxystd.AirportItlwm</string>
 			<key>IOClass</key>
 			<string>AicLoader</string>
-			<key>IOProviderClass</key>
-			<string>IOUSBHostInterface</string>
 			<key>IOProbeScore</key>
 			<integer>100000</integer>
-			<key>idVendor</key>
-			<integer>42652</integer>
-			<key>idProduct</key>
-			<integer>36224</integer>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
 			<key>bConfigurationValue</key>
 			<integer>1</integer>
 			<key>bInterfaceNumber</key>
 			<integer>0</integer>
+			<key>idProduct</key>
+			<integer>36224</integer>
+			<key>idVendor</key>
+			<integer>42652</integer>
+		</dict>
+		<key>aic8800-eject</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.zxystd.AirportItlwm</string>
+			<key>IOClass</key>
+			<string>AicLoader</string>
+			<key>IOProbeScore</key>
+			<integer>100000</integer>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>bConfigurationValue</key>
+			<integer>1</integer>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>idProduct</key>
+			<integer>22305</integer>
+			<key>idVendor</key>
+			<integer>42652</integer>
+		</dict>
+		<key>aic8800-ugreen-8d88</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.zxystd.AirportItlwm</string>
+			<key>IOClass</key>
+			<string>AicUSBDeviceWrapper</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>bConfigurationValue</key>
+			<integer>1</integer>
+			<key>bInterfaceClass</key>
+			<integer>255</integer>
+			<key>bInterfaceNumber</key>
+			<integer>2</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>255</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>255</integer>
+			<key>idProduct</key>
+			<integer>36232</integer>
+			<key>idVendor</key>
+			<integer>13963</integer>
+		</dict>
+		<key>aic8800-ugreen-eject</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.zxystd.AirportItlwm</string>
+			<key>IOClass</key>
+			<string>AicLoader</string>
+			<key>IOProbeScore</key>
+			<integer>100000</integer>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>bConfigurationValue</key>
+			<integer>1</integer>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>idProduct</key>
+			<integer>22308</integer>
+			<key>idVendor</key>
+			<integer>42652</integer>
 		</dict>
 		<key>itlwm</key>
 		<dict>
@@ -118,10 +160,10 @@
 		<string>3.2</string>
 		<key>com.apple.iokit.IOPCIFamily</key>
 		<string>2.9</string>
-		<key>com.apple.iokit.IOUSBHostFamily</key>
-		<string>1.2</string>
 		<key>com.apple.iokit.IOSkywalkFamily</key>
 		<string>1.0</string>
+		<key>com.apple.iokit.IOUSBHostFamily</key>
+		<string>1.2</string>
 		<key>com.apple.kpi.bsd</key>
 		<string>16.7</string>
 		<key>com.apple.kpi.iokit</key>
